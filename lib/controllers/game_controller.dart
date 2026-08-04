@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
-/// Current stage of the match.
+/// Current stages of the match.
 enum GamePhase {
   tossChoice,
   tossNumberSelection,
