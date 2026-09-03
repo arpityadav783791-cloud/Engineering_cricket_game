@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../controllers/game_controller.dart';
+import '../services/audio_service.dart';
+import '../widgets/coin_3d_widget.dart';
+import '../widgets/exit_confirmation_dialog.dart';
+import '../widgets/hand_gesture_badge.dart';
+import '../widgets/stadium_background.dart';
 import 'game_screen.dart';
-import 'home_screen.dart';
 
 class TossScreen extends StatefulWidget {
   const TossScreen({
@@ -20,6 +25,7 @@ class _TossScreenState extends State<TossScreen> {
   GameController get controller => widget.gameController;
 
   int? selectedTossNumber;
+  bool _isCoinFlipping = false;
 
   @override
   void initState() {
@@ -34,9 +40,7 @@ class _TossScreenState extends State<TossScreen> {
   }
 
   void _refreshScreen() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   void _openGameScreen() {
@@ -50,745 +54,310 @@ class _TossScreenState extends State<TossScreen> {
     );
   }
 
-  void _handleComputerTossWinner() {
-    controller.continueAfterToss();
+  void _onNumberTap(int tossNum) {
+    AudioService.instance.playTap();
+    setState(() {
+      selectedTossNumber = tossNum;
+    });
+  }
 
-    if (controller.currentPhase == GamePhase.firstInnings) {
-      _openGameScreen();
-    }
+  void _submitTossNumber() {
+    if (selectedTossNumber == null) return;
+
+    setState(() {
+      _isCoinFlipping = true;
+    });
+
+    AudioService.instance.playCoinFlip();
+
+    Future.delayed(const Duration(milliseconds: 1400), () {
+      if (!mounted) return;
+      controller.playToss(selectedTossNumber!);
+      setState(() {
+        _isCoinFlipping = false;
+      });
+
+      if (controller.tossWinner == PlayerType.human) {
+        AudioService.instance.playVictory();
+      } else {
+        AudioService.instance.wicketVibration();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF07142D),
-              Color(0xFF101B46),
-              Color(0xFF071E27),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Positioned(
-                top: 60,
-                left: -35,
-                child: _buildStadiumLight(),
-              ),
-              Positioned(
-                top: 60,
-                right: -35,
-                child: _buildStadiumLight(),
-              ),
-
-              SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 16,
-                ),
-                child: Column(
-                  children: [
-                    _buildTopBar(),
-
-                    const SizedBox(height: 28),
-
-                    const Icon(
-                      Icons.sports_cricket,
-                      size: 58,
-                      color: Color(0xFFFFA726),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    const Text(
-                      'WIN THE TOSS',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 25,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    Text(
-                      _getSubtitle(),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.65),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-
-                    const SizedBox(height: 26),
-
-                    _buildCurrentPhaseContent(),
-
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // CURRENT PHASE UI
-  // ============================================================
-
-  Widget _buildCurrentPhaseContent() {
-    switch (controller.currentPhase) {
-      case GamePhase.tossChoice:
-        return _buildOddEvenSection();
-
-      case GamePhase.tossNumberSelection:
-        return _buildNumberSelectionSection();
-
-      case GamePhase.tossResult:
-        return _buildTossResultSection();
-
-      case GamePhase.batBowlDecision:
-        return _buildBatBowlDecisionSection();
-
-      case GamePhase.firstInnings:
-        return _buildStartingMatchSection();
-
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  // ============================================================
-  // ODD / EVEN
-  // ============================================================
-
-  Widget _buildOddEvenSection() {
-    return _buildSectionCard(
-      title: 'CHOOSE YOUR SIDE',
-      child: Column(
-        children: [
-          Text(
-            'Choose whether the total will be odd or even',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.55),
-              fontSize: 12,
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          Row(
-            children: [
-              Expanded(
-                child: _buildChoiceButton(
-                  text: 'ODD',
-                  icon: Icons.looks_one_rounded,
-                  color: const Color(0xFFFF6D00),
-                  onPressed: () {
-                    controller.chooseOddEven(
-                      OddEvenChoice.odd,
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(width: 14),
-
-              Expanded(
-                child: _buildChoiceButton(
-                  text: 'EVEN',
-                  icon: Icons.looks_two_rounded,
-                  color: const Color(0xFF2962FF),
-                  onPressed: () {
-                    controller.chooseOddEven(
-                      OddEvenChoice.even,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // NUMBER SELECTION
-  // ============================================================
-
-  Widget _buildNumberSelectionSection() {
-    return Column(
-      children: [
-        _buildSelectedSideCard(),
-
-        const SizedBox(height: 18),
-
-        _buildSectionCard(
-          title: 'CHOOSE YOUR NUMBER',
-          child: Column(
-            children: [
-              Text(
-                'Pick one number from 1 to 5',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
-                  fontSize: 12,
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildNumberButton(1),
-                  _buildNumberButton(2),
-                  _buildNumberButton(3),
-                  _buildNumberButton(4),
-                  _buildNumberButton(5),
-                ],
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        SizedBox(
-          width: double.infinity,
-          height: 58,
-          child: ElevatedButton(
-            onPressed: selectedTossNumber == null
-                ? null
-                : () {
-                    controller.playToss(
-                      selectedTossNumber!,
-                    );
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00C853),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor:
-                  Colors.white.withValues(alpha: 0.10),
-              disabledForegroundColor:
-                  Colors.white.withValues(alpha: 0.35),
-              elevation: 8,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _confirmExit(context);
+      },
+      child: Scaffold(
+        body: StadiumBackground(
+          showFloodlights: true,
+          child: SafeArea(
+            child: Column(
               children: [
-                Icon(
-                  Icons.casino_rounded,
-                  size: 25,
-                ),
-                SizedBox(width: 10),
-                Text(
-                  'PLAY TOSS',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.2,
+                _buildTopBar(),
+
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    child: Column(
+                      children: [
+                        Coin3DWidget(
+                          isFlipping: _isCoinFlipping,
+                          targetOdd: controller.tossResultParity == OddEvenChoice.odd,
+                          size: 115,
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        Text(
+                          'THE TOSS',
+                          style: GoogleFonts.rajdhani(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2,
+                          ),
+                        ),
+
+                        const SizedBox(height: 3),
+
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            _getPhaseSubtitle(),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.65),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        _buildCurrentPhaseContent(),
+
+                        const SizedBox(height: 18),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _buildSelectedSideCard() {
-    final choice = controller.humanOddEvenChoice;
-
-    final isOdd = choice == OddEvenChoice.odd;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 14,
-      ),
-      decoration: BoxDecoration(
-        color: isOdd
-            ? const Color(0xFFFF6D00).withValues(alpha: 0.12)
-            : const Color(0xFF2962FF).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isOdd
-              ? const Color(0xFFFF6D00).withValues(alpha: 0.30)
-              : const Color(0xFF2962FF).withValues(alpha: 0.30),
-        ),
-      ),
-      child: Text(
-        'YOUR CHOICE: ${isOdd ? 'ODD' : 'EVEN'}',
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1,
-        ),
       ),
     );
   }
 
-  // ============================================================
-  // TOSS RESULT
-  // ============================================================
-
-  Widget _buildTossResultSection() {
-    final humanWon =
-        controller.tossWinner == PlayerType.human;
-
-    return Column(
-      children: [
-        _buildSectionCard(
-          title: 'TOSS RESULT',
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildRevealBox(
-                      label: 'YOU',
-                      number:
-                          controller.humanTossNumber.toString(),
-                      color: const Color(0xFF00C853),
-                      icon: Icons.person_rounded,
-                    ),
-                  ),
-
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                    ),
-                    child: Text(
-                      '+',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.65),
-                        fontSize: 25,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-
-                  Expanded(
-                    child: _buildRevealBox(
-                      label: 'CPU',
-                      number:
-                          controller.computerTossNumber.toString(),
-                      color: const Color(0xFFFF6D00),
-                      icon: Icons.computer_rounded,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 18),
-
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'TOTAL: ${controller.tossTotal}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    Text(
-                      controller.tossResultParity ==
-                              OddEvenChoice.odd
-                          ? 'ODD'
-                          : 'EVEN',
-                      style: const TextStyle(
-                        color: Color(0xFFFFD600),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 20),
-
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: humanWon
-                ? const Color(0xFF00C853)
-                    .withValues(alpha: 0.13)
-                : const Color(0xFFFF6D00)
-                    .withValues(alpha: 0.13),
-            borderRadius: BorderRadius.circular(17),
-            border: Border.all(
-              color: humanWon
-                  ? const Color(0xFF00C853)
-                      .withValues(alpha: 0.30)
-                  : const Color(0xFFFF6D00)
-                      .withValues(alpha: 0.30),
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(
-                humanWon
-                    ? Icons.emoji_events_rounded
-                    : Icons.computer_rounded,
-                color: humanWon
-                    ? const Color(0xFF76FF03)
-                    : const Color(0xFFFFA726),
-                size: 42,
-              ),
-
-              const SizedBox(height: 10),
-
-              Text(
-                humanWon
-                    ? 'YOU WON THE TOSS!'
-                    : 'COMPUTER WON THE TOSS!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: humanWon
-                      ? const Color(0xFF76FF03)
-                      : const Color(0xFFFFA726),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        SizedBox(
-          width: double.infinity,
-          height: 58,
-          child: ElevatedButton(
-            onPressed: () {
-              if (humanWon) {
-                controller.continueAfterToss();
-              } else {
-                _handleComputerTossWinner();
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2962FF),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: Text(
-              humanWon
-                  ? 'CHOOSE BAT OR BOWL'
-                  : 'CONTINUE',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
-        ),
-      ],
+  Future<void> _confirmExit(BuildContext context) async {
+    final leave = await ExitConfirmationDialog.show(
+      context,
+      title: 'Are you leaving soon? 🥺',
+      subtitle: 'The coin is ready to flip! Are you sure you want to abandon the match?',
+      stayText: 'STAY & PLAY',
+      leaveText: 'LEAVE',
     );
-  }
-
-  // ============================================================
-  // BAT / BOWL DECISION
-  // ============================================================
-
-  Widget _buildBatBowlDecisionSection() {
-    return _buildSectionCard(
-      title: 'WHAT DO YOU CHOOSE?',
-      child: Column(
-        children: [
-          Text(
-            'You won the toss. Choose your role.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.60),
-              fontSize: 13,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          Row(
-            children: [
-              Expanded(
-                child: _buildChoiceButton(
-                  text: 'BAT',
-                  icon: Icons.sports_cricket,
-                  color: const Color(0xFF00C853),
-                  onPressed: () {
-                    controller.chooseBatOrBowl(
-                      PlayDecision.bat,
-                    );
-
-                    _openGameScreen();
-                  },
-                ),
-              ),
-
-              const SizedBox(width: 14),
-
-              Expanded(
-                child: _buildChoiceButton(
-                  text: 'BOWL',
-                  icon: Icons.sports_baseball_rounded,
-                  color: const Color(0xFFFF6D00),
-                  onPressed: () {
-                    controller.chooseBatOrBowl(
-                      PlayDecision.bowl,
-                    );
-
-                    _openGameScreen();
-                  },
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // STARTING MATCH
-  // ============================================================
-
-  Widget _buildStartingMatchSection() {
-    return _buildSectionCard(
-      title: 'MATCH READY',
-      child: Column(
-        children: [
-          const Icon(
-            Icons.sports_cricket,
-            color: Color(0xFF76FF03),
-            size: 50,
-          ),
-
-          const SizedBox(height: 12),
-
-          Text(
-            controller.isHumanBatting
-                ? 'YOU WILL BAT FIRST'
-                : 'COMPUTER WILL BAT FIRST',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          SizedBox(
-            width: double.infinity,
-            height: 55,
-            child: ElevatedButton(
-              onPressed: _openGameScreen,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00C853),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text(
-                'START MATCH',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // TOP BAR
-  // ============================================================
-
-  Widget _buildTopBar() {
-    return Row(
-      children: [
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: IconButton(
-            onPressed: () {
-              controller.resetGame();
-              Navigator.pushAndRemoveUntil(
-                context, 
-                MaterialPageRoute(
-                  builder: (context) => HomeScreen(gameController: controller),
-                ),
-                (route) => false,
-              );
-            },
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              color: Colors.white,
-            ),
-          ),
-        ),
-
-        const Expanded(
-          child: Text(
-            'TOSS',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 46),
-      ],
-    );
-  }
-
-  // ============================================================
-  // SUBTITLE
-  // ============================================================
-
-  String _getSubtitle() {
-    switch (controller.currentPhase) {
-      case GamePhase.tossChoice:
-        return 'Choose Odd or Even';
-
-      case GamePhase.tossNumberSelection:
-        return 'Now choose your toss number';
-
-      case GamePhase.tossResult:
-        return 'The toss result is ready';
-
-      case GamePhase.batBowlDecision:
-        return 'Choose what you want to do';
-
-      case GamePhase.firstInnings:
-        return 'The match is ready';
-
-      default:
-        return 'Get ready to play';
+    if (leave && context.mounted) {
+      Navigator.pop(context);
     }
   }
 
-  // ============================================================
-  // SECTION CARD
-  // ============================================================
-
-  Widget _buildSectionCard({
-    required String title,
-    required Widget child,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.10),
-        ),
-      ),
-      child: Column(
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.2,
+          IconButton(
+            onPressed: () => _confirmExit(context),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          ),
+          Expanded(
+            child: Text(
+              'MATCH INITIATION',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.rajdhani(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+              ),
             ),
           ),
-
-          const SizedBox(height: 18),
-
-          child,
+          const SizedBox(width: 44),
         ],
       ),
     );
   }
 
-  // ============================================================
-  // CHOICE BUTTON
-  // ============================================================
+  String _getPhaseSubtitle() {
+    switch (controller.currentPhase) {
+      case GamePhase.tossChoice:
+        return 'Call ODD or EVEN for the flip';
+      case GamePhase.tossNumberSelection:
+        return 'Throw a number from 1 to 5';
+      case GamePhase.tossResult:
+        return 'Toss result revealed!';
+      case GamePhase.batBowlDecision:
+        return 'Choose your tactical role';
+      default:
+        return 'Hand Cricket Tournament';
+    }
+  }
 
-  Widget _buildChoiceButton({
-    required String text,
+  Widget _buildCurrentPhaseContent() {
+    if (_isCoinFlipping) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
+          children: [
+            const CircularProgressIndicator(
+              color: Color(0xFFFFD600),
+              strokeWidth: 3,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'COIN IN THE AIR...',
+              style: GoogleFonts.rajdhani(
+                color: const Color(0xFFFFD600),
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    switch (controller.currentPhase) {
+      case GamePhase.tossChoice:
+        return _buildOddEvenSection();
+      case GamePhase.tossNumberSelection:
+        return _buildNumberSelectionSection();
+      case GamePhase.tossResult:
+        return _buildTossResultSection();
+      case GamePhase.batBowlDecision:
+        return _buildBatBowlDecisionSection();
+      case GamePhase.firstInnings:
+        return _buildStartingMatchSection();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildOddEvenSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'CHOOSE YOUR CALL',
+            style: GoogleFonts.rajdhani(
+              color: const Color(0xFFFFD600),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _buildChoiceCard(
+                  title: 'ODD',
+                  subtitle: '1, 3, 5, 7, 9',
+                  icon: Icons.looks_one_rounded,
+                  color: const Color(0xFFFF6D00),
+                  onTap: () {
+                    AudioService.instance.playTap();
+                    controller.chooseOddEven(OddEvenChoice.odd);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildChoiceCard(
+                  title: 'EVEN',
+                  subtitle: '2, 4, 6, 8, 10',
+                  icon: Icons.looks_two_rounded,
+                  color: const Color(0xFF2979FF),
+                  onTap: () {
+                    AudioService.instance.playTap();
+                    controller.chooseOddEven(OddEvenChoice.even);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChoiceCard({
+    required String title,
+    required String subtitle,
     required IconData icon,
     required Color color,
-    required VoidCallback onPressed,
+    required VoidCallback onTap,
   }) {
-    return SizedBox(
-      height: 58,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: 0.4), width: 1.8),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.2),
+              blurRadius: 12,
+            ),
+          ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Column(
           children: [
-            Icon(icon, size: 22),
-            const SizedBox(width: 8),
-            Text(
-              text,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                title,
+                style: GoogleFonts.rajdhani(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 11,
+                ),
               ),
             ),
           ],
@@ -797,89 +366,182 @@ class _TossScreenState extends State<TossScreen> {
     );
   }
 
-  // ============================================================
-  // NUMBER BUTTON
-  // ============================================================
+  Widget _buildNumberSelectionSection() {
+    final isOdd = controller.humanOddEvenChoice == OddEvenChoice.odd;
 
-  Widget _buildNumberButton(int number) {
-    final isSelected =
-        selectedTossNumber == number;
-
-    return SizedBox(
-      width: 48,
-      height: 48,
-      child: ElevatedButton(
-        onPressed: () {
-          setState(() {
-            selectedTossNumber = number;
-          });
-        },
-        style: ElevatedButton.styleFrom(
-          padding: EdgeInsets.zero,
-          backgroundColor: isSelected
-              ? const Color(0xFF00C853)
-              : const Color(0xFF1E2D5A),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: (isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF)).withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF)),
+          ),
+          child: Text(
+            'YOU CALLED: ${isOdd ? 'ODD' : 'EVEN'}',
+            style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2, fontSize: 12),
           ),
         ),
-        child: Text(
-          number.toString(),
-          style: const TextStyle(
-            fontSize: 19,
-            fontWeight: FontWeight.w900,
+
+        const SizedBox(height: 14),
+
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            children: [
+              Text(
+                'PICK YOUR TOSS NUMBER',
+                style: GoogleFonts.rajdhani(
+                  color: const Color(0xFFFFD600),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final badgeSize = ((constraints.maxWidth - 32) / 5).clamp(42.0, 56.0);
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: GameController.tossNumbers.map((tossNum) {
+                      final isSelected = selectedTossNumber == tossNum;
+                      return GestureDetector(
+                        onTap: () => _onNumberTap(tossNum),
+                        child: HandGestureBadge(
+                          number: tossNum,
+                          isSelected: isSelected,
+                          size: badgeSize,
+                          showFingers: badgeSize >= 48,
+                        ),
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: selectedTossNumber != null ? _submitTossNumber : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E676),
+                    foregroundColor: Colors.black,
+                    disabledBackgroundColor: Colors.white12,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: Text(
+                    'FLIP COIN',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ),
+      ],
     );
   }
 
-  // ============================================================
-  // REVEAL BOX
-  // ============================================================
+  Widget _buildTossResultSection() {
+    final humanWon = controller.humanWonToss;
+    final total = controller.tossTotal ?? 0;
+    final parityStr = (controller.tossResultParity == OddEvenChoice.odd) ? 'ODD' : 'EVEN';
 
-  Widget _buildRevealBox({
-    required String label,
-    required String number,
-    required Color color,
-    required IconData icon,
-  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: 15,
-        horizontal: 8,
-      ),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
+        color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252)).withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: color.withValues(alpha: 0.28),
+          color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252)).withValues(alpha: 0.35),
+          width: 1.8,
         ),
       ),
       child: Column(
         children: [
           Icon(
-            icon,
-            color: color,
-            size: 22,
+            humanWon ? Icons.emoji_events_rounded : Icons.computer_rounded,
+            color: humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252),
+            size: 42,
           ),
           const SizedBox(height: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.60),
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              humanWon ? 'YOU WON THE TOSS!' : 'COMPUTER WON THE TOSS',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.rajdhani(
+                color: humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252),
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+              ),
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            number,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
+          const SizedBox(height: 10),
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'YOU (${controller.humanTossNumber}) + CPU (${controller.computerTossNumber}) = $total ($parityStr)',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () {
+                AudioService.instance.playTap();
+                if (humanWon) {
+                  controller.continueAfterToss();
+                } else {
+                  controller.continueAfterToss();
+                  if (controller.currentPhase == GamePhase.firstInnings) {
+                    _openGameScreen();
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: Text(
+                humanWon ? 'MAKE YOUR DECISION' : 'CONTINUE TO MATCH',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
             ),
           ),
         ],
@@ -887,29 +549,122 @@ class _TossScreenState extends State<TossScreen> {
     );
   }
 
-  // ============================================================
-  // STADIUM LIGHT
-  // ============================================================
-
-  Widget _buildStadiumLight() {
+  Widget _buildBatBowlDecisionSection() {
     return Container(
-      width: 110,
-      height: 45,
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blueAccent.withValues(alpha: 0.20),
-            blurRadius: 30,
-            spreadRadius: 8,
+        color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'CHOOSE TO BAT OR BOWL',
+            style: GoogleFonts.rajdhani(
+              color: const Color(0xFFFFD600),
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _buildRoleDecisionCard(
+                  title: 'BAT FIRST',
+                  desc: 'Set a big target',
+                  icon: Icons.sports_cricket_rounded,
+                  color: const Color(0xFF00E676),
+                  onTap: () {
+                    AudioService.instance.playBatHit();
+                    controller.chooseBatOrBowl(PlayDecision.bat);
+                    _openGameScreen();
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildRoleDecisionCard(
+                  title: 'BOWL FIRST',
+                  desc: 'Chase the total',
+                  icon: Icons.sports_baseball_rounded,
+                  color: const Color(0xFF00B0FF),
+                  onTap: () {
+                    AudioService.instance.playTap();
+                    controller.chooseBatOrBowl(PlayDecision.bowl);
+                    _openGameScreen();
+                  },
+                ),
+              ),
+            ],
           ),
         ],
       ),
-      child: const Icon(
-        Icons.grid_view_rounded,
-        color: Colors.white60,
-        size: 34,
+    );
+  }
+
+  Widget _buildRoleDecisionCard({
+    required String title,
+    required String desc,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: 0.4), width: 1.8),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.2),
+              blurRadius: 12,
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 34),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                title,
+                style: GoogleFonts.rajdhani(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                desc,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStartingMatchSection() {
+    return Center(
+      child: ElevatedButton(
+        onPressed: _openGameScreen,
+        child: const Text('START GAME'),
       ),
     );
   }

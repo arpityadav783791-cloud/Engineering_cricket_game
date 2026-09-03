@@ -1,395 +1,302 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 
-/// Current stages of the match.
-enum GamePhase {
-  tossChoice,
-  tossNumberSelection,
-  tossResult,
-  batBowlDecision,
-  firstInnings,
-  inningsBreak,
-  secondInnings,
-  matchFinished,
-}
+import '../data/repositories/shared_prefs_career_stats_repository.dart';
+import '../data/repositories/shared_prefs_match_history_repository.dart';
+import '../data/repositories/shared_prefs_settings_repository.dart';
+import '../domain/ai/ai_strategy.dart';
+import '../domain/repositories/career_stats_repository.dart';
+import '../domain/repositories/match_history_repository.dart';
+import '../domain/repositories/settings_repository.dart';
+import '../domain/rules/match_rule_engine.dart';
+import '../models/career_stats.dart';
+import '../models/match_enums.dart';
+import '../models/match_history_entry.dart';
+import '../models/turn_log_entry.dart';
+import 'toss_manager.dart';
 
-/// Human's Odd / Even toss choice.
-enum OddEvenChoice {
-  odd,
-  even,
-}
+// Re-export models for backward compatibility and clean presentation imports
+export '../models/career_stats.dart';
+export '../models/match_enums.dart';
+export '../models/match_history_entry.dart';
+export '../models/turn_log_entry.dart';
 
-/// Bat or Bowl decision.
-enum PlayDecision {
-  bat,
-  bowl,
-}
-
-/// Identifies a player.
-enum PlayerType {
-  human,
-  computer,
-}
-
-/// Final match result.
-enum MatchResult {
-  none,
-  humanWin,
-  computerWin,
-  tie,
-}
-
-class MatchHistoryEntry {
-  const MatchHistoryEntry({
-    required this.humanScore,
-    required this.computerScore,
-    required this.result,
-    required this.firstBatsman,
-    required this.playedAt,
-  });
-
-  final int humanScore;
-  final int computerScore;
-  final MatchResult result;
-  final PlayerType firstBatsman;
-  final DateTime playedAt;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'humanScore': humanScore,
-      'computerScore': computerScore,
-      'result': result.name,
-      'firstBatsman': firstBatsman.name,
-      'playedAt': playedAt.toIso8601String(),
-    };
-  }
-
-  factory MatchHistoryEntry.fromJson(
-    Map<String, dynamic> json,
-  ) {
-    return MatchHistoryEntry(
-      humanScore: json['humanScore'] as int,
-      computerScore: json['computerScore'] as int,
-      result: MatchResult.values.firstWhere(
-        (value) => value.name == json['result'],
-      ),
-      firstBatsman: PlayerType.values.firstWhere(
-        (value) => value.name == json['firstBatsman'],
-      ),
-      playedAt: DateTime.parse(
-        json['playedAt'] as String,
-      ),
-    );
-  }
-}
-
+/// Clean Coordinator & State Notifier implementing SOLID principles (DIP, SRP, OCP, LSP).
 class GameController extends ChangeNotifier {
-  static const String _historyStorageKey = 'hand_cricket_match_history';
-  final List<MatchHistoryEntry> _matchHistory = [];
-  
-  bool _currentMatchSaved = false;
-  
-  List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
+  GameController({
+    MatchHistoryRepository? historyRepository,
+    CareerStatsRepository? statsRepository,
+    SettingsRepository? settingsRepository,
+    Random? random,
+  })  : _historyRepo = historyRepository ?? SharedPrefsMatchHistoryRepository(),
+        _statsRepo = statsRepository ?? SharedPrefsCareerStatsRepository(),
+        _settingsRepo = settingsRepository ?? SharedPrefsSettingsRepository(),
+        _random = random ?? Random(),
+        _tossManager = TossManager() {
+    _ruleEngine = MatchRuleEngine.forMode(_matchMode);
+    _aiStrategy = AiStrategy.forDifficulty(_difficulty);
+  }
 
-  GameController({Random? random}) : _random = random ?? Random();
+  // ============================================================
+  // INJECTED DEPENDENCIES (DIP)
+  // ============================================================
 
+  final MatchHistoryRepository _historyRepo;
+  final CareerStatsRepository _statsRepo;
+  final SettingsRepository _settingsRepo;
   final Random _random;
+  final TossManager _tossManager;
+
+  late MatchRuleEngine _ruleEngine;
+  late AiStrategy _aiStrategy;
 
   // ============================================================
   // ALLOWED NUMBERS
   // ============================================================
 
-  /// Toss uses only 1 to 5.
-  static const List<int> tossNumbers = [1, 2, 3, 4, 5];
+  static const List<int> tossNumbers = AiStrategy.tossNumbers;
+  static const List<int> playNumbers = AiStrategy.playNumbers;
 
-  /// Actual batting / bowling uses these values.
-  static const List<int> playNumbers = [1, 2, 3, 4, 5, 6, 10];
+  // ============================================================
+  // STATE CACHES
+  // ============================================================
+
+  final List<MatchHistoryEntry> _matchHistory = [];
+  final List<TurnLogEntry> _turnLogs = [];
+  final List<int> _recentHumanNumbers = [];
+  CareerStats _careerStats = CareerStats.empty;
+  bool _currentMatchSaved = false;
+
+  // ============================================================
+  // CONFIGURATION & MODES (OCP)
+  // ============================================================
+
+  AiDifficulty _difficulty = AiDifficulty.club;
+  MatchMode _matchMode = MatchMode.classic;
+
+  AiDifficulty get difficulty => _difficulty;
+  MatchMode get matchMode => _matchMode;
+
+  void setDifficulty(AiDifficulty diff) {
+    _difficulty = diff;
+    _aiStrategy = AiStrategy.forDifficulty(diff);
+    _settingsRepo.saveDifficulty(diff);
+    notifyListeners();
+  }
+
+  void setMatchMode(MatchMode mode) {
+    _matchMode = mode;
+    _ruleEngine = MatchRuleEngine.forMode(mode);
+    _settingsRepo.saveMatchMode(mode);
+    notifyListeners();
+  }
+
+  // ============================================================
+  // CAREER STATS GETTERS
+  // ============================================================
+
+  CareerStats get careerStats => _careerStats;
+  int get careerMatchesPlayed => _careerStats.matchesPlayed;
+  int get careerMatchesWon => _careerStats.matchesWon;
+  int get careerHighestScore => _careerStats.highestScore;
+  int get careerTotalFours => _careerStats.totalFours;
+  int get careerTotalSixes => _careerStats.totalSixes;
+  int get careerTotalTens => _careerStats.totalTens;
+  int get careerWicketsTaken => _careerStats.wicketsTaken;
+  double get careerWinRate => _careerStats.winRate;
 
   // ============================================================
   // GAME PHASE
   // ============================================================
 
   GamePhase _currentPhase = GamePhase.tossChoice;
-
   GamePhase get currentPhase => _currentPhase;
 
   // ============================================================
-  // TOSS STATE
+  // TOSS STATE (Delegated to TossManager - SRP)
   // ============================================================
 
-  OddEvenChoice? _humanOddEvenChoice;
-  OddEvenChoice? _tossResultParity;
+  OddEvenChoice? get humanOddEvenChoice => _tossManager.humanChoice;
+  OddEvenChoice? get tossResultParity => _tossManager.parity;
+  int? get humanTossNumber => _tossManager.humanNumber;
+  int? get computerTossNumber => _tossManager.computerNumber;
+  int? get tossTotal => _tossManager.total;
+  PlayerType? get tossWinner => _tossManager.winner;
+  PlayDecision? get tossDecision => _tossManager.decision;
 
-  int? _humanTossNumber;
-  int? _computerTossNumber;
-  int? _tossTotal;
-
-  PlayerType? _tossWinner;
-
-  OddEvenChoice? get humanOddEvenChoice => _humanOddEvenChoice;
-  OddEvenChoice? get tossResultParity => _tossResultParity;
-
-  int? get humanTossNumber => _humanTossNumber;
-  int? get computerTossNumber => _computerTossNumber;
-  int? get tossTotal => _tossTotal;
-
-  PlayerType? get tossWinner => _tossWinner;
+  bool get humanWonToss => _tossManager.humanWon;
+  bool get computerWonToss => _tossManager.computerWon;
 
   // ============================================================
-  // BAT / BOWL DECISION
-  // ============================================================
-
-  PlayDecision? _tossDecision;
-
-  PlayDecision? get tossDecision => _tossDecision;
-
-  // ============================================================
-  // PLAYER ROLES
+  // ROLES & PLAYERS
   // ============================================================
 
   PlayerType? _firstInningsBatsman;
   PlayerType? _secondInningsBatsman;
-
   PlayerType? _currentBatsman;
   PlayerType? _currentBowler;
 
   PlayerType? get firstInningsBatsman => _firstInningsBatsman;
   PlayerType? get secondInningsBatsman => _secondInningsBatsman;
-
   PlayerType? get currentBatsman => _currentBatsman;
   PlayerType? get currentBowler => _currentBowler;
 
+  bool get isHumanBatting => _currentBatsman == PlayerType.human;
+  bool get isComputerBatting => _currentBatsman == PlayerType.computer;
+
   // ============================================================
-  // SCORE STATE
+  // SCORES, WICKETS, BOUNDARIES
   // ============================================================
 
   int _humanScore = 0;
   int _computerScore = 0;
+  int _humanWicketsFallen = 0;
+  int _computerWicketsFallen = 0;
+  int _humanBallsFaced = 0;
+  int _computerBallsFaced = 0;
+
+  int _humanFours = 0;
+  int _humanSixes = 0;
+  int _humanTens = 0;
+  int _computerFours = 0;
+  int _computerSixes = 0;
+  int _computerTens = 0;
 
   int _firstInningsScore = 0;
   int _target = 0;
 
   int get humanScore => _humanScore;
   int get computerScore => _computerScore;
+  int get humanWicketsFallen => _humanWicketsFallen;
+  int get computerWicketsFallen => _computerWicketsFallen;
+
+  int get maxWickets => _ruleEngine.maxWickets;
+  int get maxBallsPerInnings => _ruleEngine.maxBalls;
+
+  int get currentBatsmanWicketsFallen =>
+      isHumanBatting ? _humanWicketsFallen : _computerWicketsFallen;
+
+  int get humanBallsFaced => _humanBallsFaced;
+  int get computerBallsFaced => _computerBallsFaced;
+
+  int get humanFours => _humanFours;
+  int get humanSixes => _humanSixes;
+  int get humanTens => _humanTens;
+  int get computerFours => _computerFours;
+  int get computerSixes => _computerSixes;
+  int get computerTens => _computerTens;
 
   int get firstInningsScore => _firstInningsScore;
   int get target => _target;
 
+  int get currentBatsmanScore =>
+      isHumanBatting ? _humanScore : _computerScore;
+
+  int get runsNeeded {
+    if (_currentPhase != GamePhase.secondInnings) return 0;
+    final needed = _target - currentBatsmanScore;
+    return needed > 0 ? needed : 0;
+  }
+
+  double get humanStrikeRate =>
+      _humanBallsFaced > 0 ? (_humanScore / _humanBallsFaced * 100) : 0.0;
+
+  double get computerStrikeRate =>
+      _computerBallsFaced > 0 ? (_computerScore / _computerBallsFaced * 100) : 0.0;
+
   // ============================================================
-  // TURN STATE
+  // TURN & SHOWDOWN STATE
   // ============================================================
 
   int? _humanSelectedNumber;
   int? _computerSelectedNumber;
-
   int _turnNumber = 0;
-
   bool _isOut = false;
   PlayerType? _lastOutPlayer;
 
   int? get humanSelectedNumber => _humanSelectedNumber;
   int? get computerSelectedNumber => _computerSelectedNumber;
-
   int get turnNumber => _turnNumber;
-
   bool get isOut => _isOut;
   PlayerType? get lastOutPlayer => _lastOutPlayer;
 
   // ============================================================
-  // MATCH RESULT
+  // MATCH RESULT & LOGS
   // ============================================================
 
   MatchResult _matchResult = MatchResult.none;
-
   MatchResult get matchResult => _matchResult;
 
-  // ============================================================
-  // HELPER GETTERS
-  // ============================================================
+  bool get isFirstInnings => _currentPhase == GamePhase.firstInnings;
+  bool get isSecondInnings => _currentPhase == GamePhase.secondInnings;
+  bool get isMatchFinished => _currentPhase == GamePhase.matchFinished;
 
-  bool get isHumanBatting => _currentBatsman == PlayerType.human;
+  List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
+  List<TurnLogEntry> get turnLogs => List.unmodifiable(_turnLogs);
 
-  bool get isComputerBatting =>
-      _currentBatsman == PlayerType.computer;
-
-  bool get isFirstInnings =>
-      _currentPhase == GamePhase.firstInnings;
-
-  bool get isSecondInnings =>
-      _currentPhase == GamePhase.secondInnings;
-
-  bool get isMatchFinished =>
-      _currentPhase == GamePhase.matchFinished;
-
-  bool get humanWonToss =>
-      _tossWinner == PlayerType.human;
-
-  bool get computerWonToss =>
-      _tossWinner == PlayerType.computer;
-
-  /// Score of the player currently batting.
-  int get currentBatsmanScore {
-    if (_currentBatsman == PlayerType.human) {
-      return _humanScore;
-    }
-
-    if (_currentBatsman == PlayerType.computer) {
-      return _computerScore;
-    }
-
-    return 0;
-  }
-
-  /// During second innings, how many more runs are needed to win.
-  int get runsNeeded {
-    if (_currentPhase != GamePhase.secondInnings) {
-      return 0;
-    }
-
-    final currentScore = currentBatsmanScore;
-    final needed = _target - currentScore;
-
-    return needed > 0 ? needed : 0;
+  List<TurnLogEntry> get currentInningsLogs {
+    final curInnings = isSecondInnings ? 2 : 1;
+    return _turnLogs.where((l) => l.innings == curInnings).toList();
   }
 
   // ============================================================
-  // 1. CHOOSE ODD / EVEN
+  // 1. TOSS ACTIONS
   // ============================================================
 
   void chooseOddEven(OddEvenChoice choice) {
-    if (_currentPhase != GamePhase.tossChoice) {
-      return;
-    }
-
-    _humanOddEvenChoice = choice;
-
+    if (_currentPhase != GamePhase.tossChoice) return;
+    _tossManager.chooseOddEven(choice);
     _currentPhase = GamePhase.tossNumberSelection;
-
     notifyListeners();
   }
-
-  // ============================================================
-  // 2. PLAY TOSS
-  // ============================================================
 
   void playToss(int humanNumber) {
-    if (_currentPhase != GamePhase.tossNumberSelection) {
-      return;
-    }
+    if (_currentPhase != GamePhase.tossNumberSelection) return;
+    if (_tossManager.humanChoice == null) return;
+    if (!tossNumbers.contains(humanNumber)) return;
 
-    if (_humanOddEvenChoice == null) {
-      return;
-    }
-
-    if (!tossNumbers.contains(humanNumber)) {
-      return;
-    }
-
-    _humanTossNumber = humanNumber;
-
-    _computerTossNumber = generateComputerTossNumber();
-
-    _tossTotal =
-        _humanTossNumber! + _computerTossNumber!;
-
-    // Determine parity of total.
-    if (_tossTotal! % 2 == 0) {
-      _tossResultParity = OddEvenChoice.even;
-    } else {
-      _tossResultParity = OddEvenChoice.odd;
-    }
-
-    // Human wins if parity matches human choice.
-    if (_tossResultParity == _humanOddEvenChoice) {
-      _tossWinner = PlayerType.human;
-    } else {
-      _tossWinner = PlayerType.computer;
-    }
+    final computerNumber = _aiStrategy.generateTossNumber(_random);
+    _tossManager.executeToss(humanNum: humanNumber, computerNum: computerNumber);
 
     _currentPhase = GamePhase.tossResult;
-
     notifyListeners();
   }
 
-  // ============================================================
-  // 3. CONTINUE AFTER TOSS RESULT
-  // ============================================================
-
   void continueAfterToss() {
-    if (_currentPhase != GamePhase.tossResult) {
-      return;
-    }
+    if (_currentPhase != GamePhase.tossResult) return;
 
-    if (_tossWinner == PlayerType.human) {
-      // Human must manually choose Bat or Bowl.
+    if (_tossManager.winner == PlayerType.human) {
       _currentPhase = GamePhase.batBowlDecision;
-
       notifyListeners();
       return;
     }
 
-    if (_tossWinner == PlayerType.computer) {
-      // Computer chooses automatically.
+    if (_tossManager.winner == PlayerType.computer) {
       computerChooseBatOrBowl();
     }
   }
 
-  // ============================================================
-  // 4. HUMAN CHOOSES BAT / BOWL
-  // ============================================================
-
   void chooseBatOrBowl(PlayDecision decision) {
-    if (_currentPhase != GamePhase.batBowlDecision) {
-      return;
-    }
+    if (_currentPhase != GamePhase.batBowlDecision) return;
+    if (_tossManager.winner != PlayerType.human) return;
 
-    if (_tossWinner != PlayerType.human) {
-      return;
-    }
-
-    _tossDecision = decision;
-
-    _assignInningsRoles(
-      decisionMaker: PlayerType.human,
-      decision: decision,
-    );
-
+    _tossManager.setDecision(decision);
+    _assignInningsRoles(decisionMaker: PlayerType.human, decision: decision);
     _startFirstInnings();
   }
 
-  // ============================================================
-  // 5. COMPUTER CHOOSES BAT / BOWL
-  // ============================================================
-
   void computerChooseBatOrBowl() {
-    if (_tossWinner != PlayerType.computer) {
-      return;
-    }
-
+    if (_tossManager.winner != PlayerType.computer) return;
     if (_currentPhase != GamePhase.tossResult &&
         _currentPhase != GamePhase.batBowlDecision) {
       return;
     }
 
-    final randomDecision = _random.nextBool()
-        ? PlayDecision.bat
-        : PlayDecision.bowl;
-
-    _tossDecision = randomDecision;
-
-    _assignInningsRoles(
-      decisionMaker: PlayerType.computer,
-      decision: randomDecision,
-    );
-
+    final decision = _random.nextBool() ? PlayDecision.bat : PlayDecision.bowl;
+    _tossManager.setDecision(decision);
+    _assignInningsRoles(decisionMaker: PlayerType.computer, decision: decision);
     _startFirstInnings();
   }
-
-  // ============================================================
-  // ASSIGN FIRST / SECOND INNINGS ROLES
-  // ============================================================
 
   void _assignInningsRoles({
     required PlayerType decisionMaker,
@@ -397,34 +304,22 @@ class GameController extends ChangeNotifier {
   }) {
     if (decision == PlayDecision.bat) {
       _firstInningsBatsman = decisionMaker;
-
-      _secondInningsBatsman =
-          _opponentOf(decisionMaker);
+      _secondInningsBatsman = _opponentOf(decisionMaker);
     } else {
-      _firstInningsBatsman =
-          _opponentOf(decisionMaker);
-
+      _firstInningsBatsman = _opponentOf(decisionMaker);
       _secondInningsBatsman = decisionMaker;
     }
   }
 
-  // ============================================================
-  // START FIRST INNINGS
-  // ============================================================
-
   void _startFirstInnings() {
-    if (_firstInningsBatsman == null) {
-      return;
-    }
+    if (_firstInningsBatsman == null) return;
 
     _currentBatsman = _firstInningsBatsman;
     _currentBowler = _opponentOf(_currentBatsman!);
-
     _currentPhase = GamePhase.firstInnings;
 
     _humanSelectedNumber = null;
     _computerSelectedNumber = null;
-
     _isOut = false;
     _lastOutPlayer = null;
 
@@ -432,54 +327,108 @@ class GameController extends ChangeNotifier {
   }
 
   // ============================================================
-  // 6. PLAY ONE TURN
+  // 2. TURN EXECUTION
   // ============================================================
 
   void playTurn(int humanNumber) {
-    // No turns after match finishes.
-    if (_currentPhase == GamePhase.matchFinished) {
-      return;
-    }
-
-    // Turns only allowed during innings.
+    if (_currentPhase == GamePhase.matchFinished) return;
     if (_currentPhase != GamePhase.firstInnings &&
         _currentPhase != GamePhase.secondInnings) {
       return;
     }
+    if (!playNumbers.contains(humanNumber)) return;
 
-    // Validate human gameplay number.
-    if (!playNumbers.contains(humanNumber)) {
-      return;
-    }
-
-    // Store human selection.
     _humanSelectedNumber = humanNumber;
+    _recentHumanNumbers.add(humanNumber);
+    if (_recentHumanNumbers.length > 8) _recentHumanNumbers.removeAt(0);
 
-    // Generate computer selection.
-    _computerSelectedNumber =
-        generateComputerPlayNumber();
+    // Generate AI move via Strategy (OCP & LSP)
+    _computerSelectedNumber = _aiStrategy.generatePlayNumber(
+      AiContext(
+        recentHumanNumbers: _recentHumanNumbers,
+        isBatting: isComputerBatting,
+        currentScore: _computerScore,
+        targetScore: _target,
+        random: _random,
+      ),
+    );
 
     _turnNumber++;
 
-    // Always check OUT before adding score.
-    if (checkOut(
+    if (isHumanBatting) {
+      _humanBallsFaced++;
+    } else {
+      _computerBallsFaced++;
+    }
+
+    // Check OUT via Rule Engine (OCP & LSP)
+    final isWicket = _ruleEngine.checkOut(
       _humanSelectedNumber!,
       _computerSelectedNumber!,
-    )) {
-      _processOut();
+    );
 
+    if (isWicket) {
+      _turnLogs.add(TurnLogEntry(
+        ballNumber: _turnNumber,
+        runs: 0,
+        isOut: true,
+        batsman: _currentBatsman!,
+        humanNumber: _humanSelectedNumber!,
+        computerNumber: _computerSelectedNumber!,
+        innings: isSecondInnings ? 2 : 1,
+      ));
+
+      if (isComputerBatting) {
+        _careerStats = _careerStats.copyWith(
+          wicketsTaken: _careerStats.wicketsTaken + 1,
+        );
+      }
+
+      _processOut();
       notifyListeners();
       return;
     }
 
-    // Numbers are different.
     _isOut = false;
     _lastOutPlayer = null;
 
-    // Add only batsman's number.
+    final runs = isHumanBatting ? _humanSelectedNumber! : _computerSelectedNumber!;
+
+    _turnLogs.add(TurnLogEntry(
+      ballNumber: _turnNumber,
+      runs: runs,
+      isOut: false,
+      batsman: _currentBatsman!,
+      humanNumber: _humanSelectedNumber!,
+      computerNumber: _computerSelectedNumber!,
+      innings: isSecondInnings ? 2 : 1,
+    ));
+
     updateScore();
 
-    // During chase, immediately check victory.
+    // Check balls limit via Rule Engine
+    final currentBalls = isFirstInnings
+        ? (_firstInningsBatsman == PlayerType.human ? _humanBallsFaced : _computerBallsFaced)
+        : (_secondInningsBatsman == PlayerType.human ? _humanBallsFaced : _computerBallsFaced);
+
+    final currentWickets = currentBatsmanWicketsFallen;
+
+    if (_ruleEngine.isInningsFinished(
+      wicketsFallen: currentWickets,
+      ballsBowled: currentBalls,
+    )) {
+      if (isFirstInnings) {
+        endFirstInnings();
+        notifyListeners();
+        return;
+      } else {
+        _finishSecondInningsByOvers();
+        notifyListeners();
+        return;
+      }
+    }
+
+    // During chase, check target exceeded
     if (_currentPhase == GamePhase.secondInnings) {
       checkChaseTarget();
     }
@@ -487,26 +436,31 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ============================================================
-  // 7. CHECK OUT
-  // ============================================================
-
-  bool checkOut(
-    int humanNumber,
-    int computerNumber,
-  ) {
-    return humanNumber == computerNumber;
+  bool checkOut(int humanNumber, int computerNumber) {
+    return _ruleEngine.checkOut(humanNumber, computerNumber);
   }
-
-  // ============================================================
-  // PROCESS OUT
-  // ============================================================
 
   void _processOut() {
     _isOut = true;
     _lastOutPlayer = _currentBatsman;
 
-    // Matching number is deliberately NOT added.
+    if (isHumanBatting) {
+      _humanWicketsFallen++;
+    } else {
+      _computerWicketsFallen++;
+    }
+
+    // Check if more wickets remain before finishing innings
+    final currentBalls = isFirstInnings
+        ? (_firstInningsBatsman == PlayerType.human ? _humanBallsFaced : _computerBallsFaced)
+        : (_secondInningsBatsman == PlayerType.human ? _humanBallsFaced : _computerBallsFaced);
+
+    if (!_ruleEngine.isInningsFinished(
+      wicketsFallen: currentBatsmanWicketsFallen,
+      ballsBowled: currentBalls,
+    )) {
+      return;
+    }
 
     if (_currentPhase == GamePhase.firstInnings) {
       endFirstInnings();
@@ -518,10 +472,6 @@ class GameController extends ChangeNotifier {
     }
   }
 
-  // ============================================================
-  // 8. UPDATE SCORE
-  // ============================================================
-
   void updateScore() {
     if (_humanSelectedNumber == null ||
         _computerSelectedNumber == null ||
@@ -529,293 +479,219 @@ class GameController extends ChangeNotifier {
       return;
     }
 
-    // Human batting:
-    // Add human selected number.
-    if (_currentBatsman == PlayerType.human) {
-      _humanScore += _humanSelectedNumber!;
-      return;
-    }
-
-    // Computer batting:
-    // Add computer selected number.
-    if (_currentBatsman == PlayerType.computer) {
-      _computerScore += _computerSelectedNumber!;
+    if (isHumanBatting) {
+      final runs = _humanSelectedNumber!;
+      _humanScore += runs;
+      if (runs == 4) {
+        _humanFours++;
+        _careerStats = _careerStats.copyWith(totalFours: _careerStats.totalFours + 1);
+      } else if (runs == 6) {
+        _humanSixes++;
+        _careerStats = _careerStats.copyWith(totalSixes: _careerStats.totalSixes + 1);
+      } else if (runs == 10) {
+        _humanTens++;
+        _careerStats = _careerStats.copyWith(totalTens: _careerStats.totalTens + 1);
+      }
+    } else {
+      final runs = _computerSelectedNumber!;
+      _computerScore += runs;
+      if (runs == 4) _computerFours++;
+      if (runs == 6) _computerSixes++;
+      if (runs == 10) _computerTens++;
     }
   }
 
-  // ============================================================
-  // 9. END FIRST INNINGS
-  // ============================================================
-
   void endFirstInnings() {
-    if (_currentPhase != GamePhase.firstInnings) {
-      return;
-    }
+    if (_currentPhase != GamePhase.firstInnings) return;
 
-    if (_currentBatsman == PlayerType.human) {
-      _firstInningsScore = _humanScore;
-    } else if (_currentBatsman == PlayerType.computer) {
-      _firstInningsScore = _computerScore;
-    } else {
-      return;
-    }
-
-    // Target is one more than first innings score.
+    _firstInningsScore = isHumanBatting ? _humanScore : _computerScore;
     _target = _firstInningsScore + 1;
-
     _currentPhase = GamePhase.inningsBreak;
   }
 
-  // ============================================================
-  // 10. START SECOND INNINGS
-  // ============================================================
-
   void startSecondInnings() {
-    if (_currentPhase != GamePhase.inningsBreak) {
-      return;
-    }
-
-    if (_secondInningsBatsman == null) {
-      return;
-    }
+    if (_currentPhase != GamePhase.inningsBreak) return;
+    if (_secondInningsBatsman == null) return;
 
     _currentBatsman = _secondInningsBatsman;
     _currentBowler = _opponentOf(_currentBatsman!);
 
     _humanSelectedNumber = null;
     _computerSelectedNumber = null;
-
     _isOut = false;
     _lastOutPlayer = null;
 
     _currentPhase = GamePhase.secondInnings;
-
     notifyListeners();
   }
 
-  // ============================================================
-  // 11. CHECK CHASE TARGET
-  // ============================================================
-
   void checkChaseTarget() {
-    if (_currentPhase != GamePhase.secondInnings) {
-      return;
-    }
+    if (_currentPhase != GamePhase.secondInnings) return;
 
-    if (_currentBatsman == PlayerType.human) {
-      // Human must exceed first innings score.
-      if (_humanScore > _firstInningsScore) {
+    if (isHumanBatting) {
+      if (_ruleEngine.isChaseTargetExceeded(_humanScore, _firstInningsScore)) {
         finishMatch(MatchResult.humanWin);
       }
-
       return;
     }
 
-    if (_currentBatsman == PlayerType.computer) {
-      // Computer must exceed first innings score.
-      if (_computerScore > _firstInningsScore) {
+    if (isComputerBatting) {
+      if (_ruleEngine.isChaseTargetExceeded(_computerScore, _firstInningsScore)) {
         finishMatch(MatchResult.computerWin);
       }
     }
   }
 
-  // ============================================================
-  // SECOND INNINGS OUT RESULT
-  // ============================================================
+  void _finishSecondInningsByOvers() {
+    if (_currentBatsman == null) return;
+    final chasingScore = currentBatsmanScore;
+
+    if (chasingScore > _firstInningsScore) {
+      finishMatch(isHumanBatting ? MatchResult.humanWin : MatchResult.computerWin);
+    } else if (chasingScore == _firstInningsScore) {
+      finishMatch(MatchResult.tie);
+    } else {
+      finishMatch(isHumanBatting ? MatchResult.computerWin : MatchResult.humanWin);
+    }
+  }
 
   void _finishSecondInningsAfterOut() {
-    if (_currentBatsman == null) {
-      return;
-    }
+    if (_currentBatsman == null) return;
 
     final chasingScore = currentBatsmanScore;
 
-    // Chaser OUT with equal score = tie.
     if (chasingScore == _firstInningsScore) {
       finishMatch(MatchResult.tie);
       return;
     }
 
-    // Human was chasing and got out below target.
-    if (_currentBatsman == PlayerType.human) {
+    if (isHumanBatting) {
       finishMatch(MatchResult.computerWin);
       return;
     }
 
-    // Computer was chasing and got out below target.
-    if (_currentBatsman == PlayerType.computer) {
+    if (isComputerBatting) {
       finishMatch(MatchResult.humanWin);
     }
   }
 
-  // ============================================================
-  // 12. FINISH MATCH
-  // ============================================================
-
   void finishMatch(MatchResult result) {
-    if (_currentPhase == GamePhase.matchFinished) {
-      return;
-    }
+    if (_currentPhase == GamePhase.matchFinished) return;
 
     _matchResult = result;
     _currentPhase = GamePhase.matchFinished;
+
+    final newPlayed = _careerStats.matchesPlayed + 1;
+    final newWon = result == MatchResult.humanWin
+        ? _careerStats.matchesWon + 1
+        : _careerStats.matchesWon;
+    final newHigh = _humanScore > _careerStats.highestScore
+        ? _humanScore
+        : _careerStats.highestScore;
+
+    _careerStats = _careerStats.copyWith(
+      matchesPlayed: newPlayed,
+      matchesWon: newWon,
+      highestScore: newHigh,
+    );
+
+    _statsRepo.saveCareerStats(_careerStats);
     saveCompletedMatch();
   }
 
-  // ============================================================
-  // 13. RANDOM TOSS NUMBER
-  // ============================================================
-
   int generateComputerTossNumber() {
-    final index = _random.nextInt(tossNumbers.length);
-
-    return tossNumbers[index];
+    return _aiStrategy.generateTossNumber(_random);
   }
-
-  // ============================================================
-  // 14. RANDOM GAMEPLAY NUMBER
-  // ============================================================
 
   int generateComputerPlayNumber() {
-    final index = _random.nextInt(playNumbers.length);
-
-    return playNumbers[index];
+    return _aiStrategy.generatePlayNumber(
+      AiContext(
+        recentHumanNumbers: _recentHumanNumbers,
+        isBatting: isComputerBatting,
+        currentScore: _computerScore,
+        targetScore: _target,
+        random: _random,
+      ),
+    );
   }
-
-  // ============================================================
-  // GET OPPONENT
-  // ============================================================
 
   PlayerType _opponentOf(PlayerType player) {
-    if (player == PlayerType.human) {
-      return PlayerType.computer;
-    }
-
-    return PlayerType.human;
+    return player == PlayerType.human ? PlayerType.computer : PlayerType.human;
   }
-
-  // ============================================================
-  // 15. RESET GAME
-  // ============================================================
 
   void resetGame() {
     _currentMatchSaved = false;
-
-    // Phase
     _currentPhase = GamePhase.tossChoice;
+    _tossManager.reset();
 
-    // Toss
-    _humanOddEvenChoice = null;
-    _tossResultParity = null;
-
-    _humanTossNumber = null;
-    _computerTossNumber = null;
-    _tossTotal = null;
-
-    _tossWinner = null;
-
-    // Decision
-    _tossDecision = null;
-
-    // Roles
     _firstInningsBatsman = null;
     _secondInningsBatsman = null;
-
     _currentBatsman = null;
     _currentBowler = null;
 
-    // Scores
     _humanScore = 0;
     _computerScore = 0;
+    _humanWicketsFallen = 0;
+    _computerWicketsFallen = 0;
+    _humanBallsFaced = 0;
+    _computerBallsFaced = 0;
+    _humanFours = 0;
+    _humanSixes = 0;
+    _humanTens = 0;
+    _computerFours = 0;
+    _computerSixes = 0;
+    _computerTens = 0;
 
     _firstInningsScore = 0;
     _target = 0;
 
-    // Turn
     _humanSelectedNumber = null;
     _computerSelectedNumber = null;
-
     _turnNumber = 0;
-
-    // Out
     _isOut = false;
     _lastOutPlayer = null;
 
-    // Result
     _matchResult = MatchResult.none;
+    _turnLogs.clear();
+    _recentHumanNumbers.clear();
 
     notifyListeners();
   }
+
+  // ============================================================
+  // PERSISTENCE (Delegated to Repositories - DIP & SRP)
+  // ============================================================
+
   Future<void> loadMatchHistory() async {
-    final preferences =
-        await SharedPreferences.getInstance();
+    // Load Settings
+    final settings = await _settingsRepo.getSettings();
+    _difficulty = settings.difficulty;
+    _aiStrategy = AiStrategy.forDifficulty(_difficulty);
+    _matchMode = settings.matchMode;
+    _ruleEngine = MatchRuleEngine.forMode(_matchMode);
 
-    final savedHistory =
-        preferences.getStringList(_historyStorageKey);
+    // Load Career Stats
+    _careerStats = await _statsRepo.getCareerStats();
 
+    // Load History
+    final history = await _historyRepo.getMatchHistory();
     _matchHistory.clear();
-
-    if (savedHistory == null) {
-      notifyListeners();
-      return;
-    }
-
-    for (final item in savedHistory) {
-      try {
-        final decoded =
-            jsonDecode(item) as Map<String, dynamic>;
-
-        _matchHistory.add(
-          MatchHistoryEntry.fromJson(decoded),
-        );
-      } catch (_) {
-      // Ignore corrupted history entries.
-      }
-    }
-
-    if (_matchHistory.length > 10) {
-      _matchHistory.removeRange(
-        10,
-        _matchHistory.length,
-      );
-    }
+    _matchHistory.addAll(history);
 
     notifyListeners();
   }
 
-  Future<void> _saveMatchHistory() async {
-    final preferences =
-        await SharedPreferences.getInstance();
-
-    final encodedHistory = _matchHistory
-        .take(10)
-        .map(
-          (entry) => jsonEncode(entry.toJson()),
-        )
-        .toList();
-
-    await preferences.setStringList(
-      _historyStorageKey,
-      encodedHistory,
-    );
+  Future<void> resetCareerStats() async {
+    _careerStats = CareerStats.empty;
+    await _statsRepo.resetCareerStats();
+    notifyListeners();
   }
 
   Future<void> saveCompletedMatch() async {
-    if (_currentMatchSaved) {
-      return;
-    }
-
-    if (currentPhase != GamePhase.matchFinished) {
-      return;
-    }
-
-    if (matchResult == MatchResult.none) {
-      return;
-    }
-
-    if (firstInningsBatsman == null) {
-      return;
-    }
+    if (_currentMatchSaved) return;
+    if (currentPhase != GamePhase.matchFinished) return;
+    if (matchResult == MatchResult.none) return;
+    if (firstInningsBatsman == null) return;
 
     _currentMatchSaved = true;
 
@@ -825,32 +701,22 @@ class GameController extends ChangeNotifier {
       result: matchResult,
       firstBatsman: firstInningsBatsman!,
       playedAt: DateTime.now(),
+      humanBalls: _humanBallsFaced,
+      computerBalls: _computerBallsFaced,
     );
 
     _matchHistory.insert(0, entry);
-
-    if (_matchHistory.length > 10) {
-      _matchHistory.removeRange(
-        10,
-      _matchHistory.length,
-      );
+    if (_matchHistory.length > 20) {
+      _matchHistory.removeRange(20, _matchHistory.length);
     }
 
     notifyListeners();
-
-    await _saveMatchHistory();
+    await _historyRepo.saveMatch(entry);
   }
 
   Future<void> clearMatchHistory() async {
     _matchHistory.clear();
-
-    final preferences =
-        await SharedPreferences.getInstance();
-
-    await preferences.remove(
-      _historyStorageKey,
-    );
-
+    await _historyRepo.clearHistory();
     notifyListeners();
-  }  
+  }
 }
