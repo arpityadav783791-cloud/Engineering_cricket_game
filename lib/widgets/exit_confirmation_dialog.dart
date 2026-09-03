@@ -5,7 +5,7 @@ import '../services/audio_service.dart';
 class ExitConfirmationDialog extends StatelessWidget {
   const ExitConfirmationDialog({
     super.key,
-    this.title = 'Are you leaving soon? 🥺',
+    this.title = 'Leaving so soon?',
     this.subtitle = 'The stadium is waiting for your next big shot! Don\'t abandon the pitch yet.',
     this.stayText = 'STAY & PLAY',
     this.leaveText = 'LEAVE',
@@ -18,7 +18,7 @@ class ExitConfirmationDialog extends StatelessWidget {
 
   static Future<bool> show(
     BuildContext context, {
-    String title = 'Are you leaving soon? 🥺',
+    String title = 'Leaving so soon?',
     String subtitle = 'The stadium is waiting for your next big shot! Don\'t abandon the pitch yet.',
     String stayText = 'STAY & PLAY',
     String leaveText = 'LEAVE',

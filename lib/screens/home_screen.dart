@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (didPop) return;
         final exit = await ExitConfirmationDialog.show(
           context,
-          title: 'Are you leaving soon? 🥺',
+          title: 'Are you leaving soon?',
           subtitle: 'The stadium is waiting for your next match! Don\'t walk back to the pavilion yet.',
           stayText: 'STAY & PLAY',
           leaveText: 'EXIT APP',

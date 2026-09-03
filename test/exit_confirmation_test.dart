@@ -25,7 +25,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify Title with sad emoji
-    expect(find.text('Are you leaving soon? 🥺'), findsOneWidget);
+    expect(find.text('Leaving so soon?'), findsOneWidget);
     // Verify emoji badge
     expect(find.text('🥺'), findsOneWidget);
     // Verify action buttons

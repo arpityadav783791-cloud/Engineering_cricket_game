@@ -831,7 +831,7 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _confirmExit(BuildContext context) async {
     final leave = await ExitConfirmationDialog.show(
       context,
-      title: 'Are you leaving soon? 🥺',
+      title: 'Leaving so soon?',
       subtitle: 'Your match is in progress! If you leave now, this match will be forfeited.',
       stayText: 'STAY & PLAY',
       leaveText: 'LEAVE',

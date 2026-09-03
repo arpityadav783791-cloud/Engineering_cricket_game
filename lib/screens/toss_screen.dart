@@ -160,7 +160,7 @@ class _TossScreenState extends State<TossScreen> {
   Future<void> _confirmExit(BuildContext context) async {
     final leave = await ExitConfirmationDialog.show(
       context,
-      title: 'Are you leaving soon? 🥺',
+      title: 'Leaving so soon?',
       subtitle: 'The coin is ready to flip! Are you sure you want to abandon the match?',
       stayText: 'STAY & PLAY',
       leaveText: 'LEAVE',
