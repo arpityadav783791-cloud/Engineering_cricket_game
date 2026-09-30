@@ -10,10 +10,7 @@ import '../widgets/stadium_background.dart';
 import 'game_screen.dart';
 
 class TossScreen extends StatefulWidget {
-  const TossScreen({
-    super.key,
-    required this.gameController,
-  });
+  const TossScreen({super.key, required this.gameController});
 
   final GameController gameController;
 
@@ -47,9 +44,7 @@ class _TossScreenState extends State<TossScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => GameScreen(
-          gameController: controller,
-        ),
+        builder: (context) => GameScreen(gameController: controller),
       ),
     );
   }
@@ -104,12 +99,16 @@ class _TossScreenState extends State<TossScreen> {
                 Expanded(
                   child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 8,
+                    ),
                     child: Column(
                       children: [
                         Coin3DWidget(
                           isFlipping: _isCoinFlipping,
-                          targetOdd: controller.tossResultParity == OddEvenChoice.odd,
+                          targetOdd:
+                              controller.tossResultParity == OddEvenChoice.odd,
                           size: 115,
                         ),
 
@@ -161,7 +160,8 @@ class _TossScreenState extends State<TossScreen> {
     final leave = await ExitConfirmationDialog.show(
       context,
       title: 'Leaving so soon?',
-      subtitle: 'The coin is ready to flip! Are you sure you want to abandon the match?',
+      subtitle:
+          'The coin is ready to flip! Are you sure you want to abandon the match?',
       stayText: 'STAY & PLAY',
       leaveText: 'LEAVE',
     );
@@ -179,7 +179,9 @@ class _TossScreenState extends State<TossScreen> {
             onPressed: () => _confirmExit(context),
             style: IconButton.styleFrom(
               backgroundColor: Colors.white.withValues(alpha: 0.08),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
           ),
@@ -263,7 +265,9 @@ class _TossScreenState extends State<TossScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+        border: Border.all(
+          color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+        ),
       ),
       child: Column(
         children: [
@@ -327,10 +331,7 @@ class _TossScreenState extends State<TossScreen> {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: color.withValues(alpha: 0.4), width: 1.8),
           boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.2),
-              blurRadius: 12,
-            ),
+            BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 12),
           ],
         ),
         child: Column(
@@ -374,13 +375,20 @@ class _TossScreenState extends State<TossScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
-            color: (isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF)).withValues(alpha: 0.2),
+            color: (isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF))
+                .withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF)),
+            border: Border.all(
+              color: isOdd ? const Color(0xFFFF6D00) : const Color(0xFF2979FF),
+            ),
           ),
           child: Text(
             'YOU CALLED: ${isOdd ? 'ODD' : 'EVEN'}',
-            style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2, fontSize: 12),
+            style: const TextStyle(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+              fontSize: 12,
+            ),
           ),
         ),
 
@@ -391,7 +399,9 @@ class _TossScreenState extends State<TossScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+            border: Border.all(
+              color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+            ),
           ),
           child: Column(
             children: [
@@ -407,7 +417,10 @@ class _TossScreenState extends State<TossScreen> {
               const SizedBox(height: 14),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final badgeSize = ((constraints.maxWidth - 32) / 5).clamp(42.0, 56.0);
+                  final badgeSize = ((constraints.maxWidth - 32) / 5).clamp(
+                    42.0,
+                    56.0,
+                  );
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: GameController.tossNumbers.map((tossNum) {
@@ -430,12 +443,16 @@ class _TossScreenState extends State<TossScreen> {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: selectedTossNumber != null ? _submitTossNumber : null,
+                  onPressed: selectedTossNumber != null
+                      ? _submitTossNumber
+                      : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00E676),
                     foregroundColor: Colors.black,
                     disabledBackgroundColor: Colors.white12,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: Text(
                     'FLIP COIN',
@@ -456,16 +473,16 @@ class _TossScreenState extends State<TossScreen> {
 
   Widget _buildTossResultSection() {
     final humanWon = controller.humanWonToss;
-    final total = controller.tossTotal ?? 0;
-    final parityStr = (controller.tossResultParity == OddEvenChoice.odd) ? 'ODD' : 'EVEN';
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252)).withValues(alpha: 0.1),
+        color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252))
+            .withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252)).withValues(alpha: 0.35),
+          color: (humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252))
+              .withValues(alpha: 0.35),
           width: 1.8,
         ),
       ),
@@ -476,43 +493,106 @@ class _TossScreenState extends State<TossScreen> {
             color: humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252),
             size: 42,
           ),
+
           const SizedBox(height: 6),
+
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
               humanWon ? 'YOU WON THE TOSS!' : 'COMPUTER WON THE TOSS',
               textAlign: TextAlign.center,
               style: GoogleFonts.rajdhani(
-                color: humanWon ? const Color(0xFF76FF03) : const Color(0xFFFF5252),
+                color: humanWon
+                    ? const Color(0xFF76FF03)
+                    : const Color(0xFFFF5252),
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.5,
               ),
             ),
           ),
-          const SizedBox(height: 10),
 
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                'YOU (${controller.humanTossNumber}) + CPU (${controller.computerTossNumber}) = $total ($parityStr)',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                  letterSpacing: 0.5,
-                ),
-              ),
+          const SizedBox(height: 8),
+
+          Text(
+            humanWon ? 'You called it right!' : 'The computer called it right!',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
             ),
           ),
 
           const SizedBox(height: 16),
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                Column(
+                  children: [
+                    Text(
+                      'YOUR CALL',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${controller.humanTossNumber}',
+                      style: GoogleFonts.rajdhani(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+
+                Container(
+                  width: 1,
+                  height: 42,
+                  color: Colors.white.withValues(alpha: 0.15),
+                ),
+
+                Column(
+                  children: [
+                    Text(
+                      'CPU CALL',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${controller.computerTossNumber}',
+                      style: GoogleFonts.rajdhani(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 18),
 
           SizedBox(
             width: double.infinity,
@@ -520,10 +600,12 @@ class _TossScreenState extends State<TossScreen> {
             child: ElevatedButton(
               onPressed: () {
                 AudioService.instance.playTap();
+
                 if (humanWon) {
                   controller.continueAfterToss();
                 } else {
                   controller.continueAfterToss();
+
                   if (controller.currentPhase == GamePhase.firstInnings) {
                     _openGameScreen();
                   }
@@ -532,7 +614,9 @@ class _TossScreenState extends State<TossScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00E676),
                 foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               child: Text(
                 humanWon ? 'MAKE YOUR DECISION' : 'CONTINUE TO MATCH',
@@ -555,7 +639,9 @@ class _TossScreenState extends State<TossScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF0D1C3E).withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+        border: Border.all(
+          color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+        ),
       ),
       child: Column(
         children: [
@@ -621,10 +707,7 @@ class _TossScreenState extends State<TossScreen> {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: color.withValues(alpha: 0.4), width: 1.8),
           boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.2),
-              blurRadius: 12,
-            ),
+            BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 12),
           ],
         ),
         child: Column(
